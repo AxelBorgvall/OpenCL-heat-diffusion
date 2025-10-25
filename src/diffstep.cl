@@ -1,178 +1,114 @@
-// Tunable tile size:
-// assume mem fed is padded, no 0 BC
-#define TILE_W_D 8 // will need to load 10 length rows
-#define TILE_H_D 8 // will need to load 4 of them
+// Tunable tile size
+#define TILE_W_D 8
+#define TILE_H_D 8
+#define S_W_D (TILE_W_D + 2)
+#define S_H_D (TILE_H_D + 2)
+
 #pragma OPENCL EXTENSION cl_khr_fp64 : enable
+
 __kernel void diffusion_step_d(
-  __global double *input,  // flattened input image (row-major)
-  __global double *output,       // flattened output image (row-major)
+  __global const double *input,
+  __global double *output,
   const int width,
   const int height,
   const double c)
 {
-  //global coords
-  const int gx = get_global_id(0); // x in [0, global_size_x)
-  const int gy = get_global_id(1); // y in [0, global_size_y)
-
-  //local coords
-  const int lx = get_local_id(0);  // in [0, get_local_size(0))
+  const int gx = get_global_id(0);
+  const int gy = get_global_id(1);
+  const int lx = get_local_id(0);
   const int ly = get_local_id(1);
-  
-  //group coords (upperleft corner)
   const int group_x0 = get_group_id(0) * TILE_W_D;
   const int group_y0 = get_group_id(1) * TILE_H_D;
 
-  //allocate local memory for the tile
-  int S_W=TILE_W_D+2;
-  int S_H=TILE_H_D+2;
-  __local double tile[S_H*S_W];
+  __local double tile[S_H_D * S_W_D];
 
-  const int local_size_x = get_local_size(0);
-  const int local_size_y = get_local_size(1);
+  // --- Parallel async copies: each row-leading thread (lx == 0) loads one row ---
+  if (lx == 0 && ly < S_H_D) {
+    int start_x = max(group_x0 - 1, 0);
+    int start_y = max(group_y0 + ly - 1, 0);
+    int copy_w  = min(S_W_D, width - start_x);
 
-  int esize=sizeof(double);
-  int leftadd=(gx!=0)?1:0;
-  int rightadd=(gx>=width-1)?width-1-gx:1;
+    const __global double *src = input + start_y * width + start_x;
+    __local double *dst = tile + ly * S_W_D;
 
-  int topadd=(gy!=0)?1:0;
-  int botadd=(gy>=height-1)?height-1-gy:1;
-
-  
-  /*
-  we want to load height+topadd+botadd rows of length 
-  width + leftadd + rightadd
-  starting at idx [-leftadd,-topadd]
-  */
-  int workeridx=lx+ly*S_W;
-
-  if (workeridx<TILE_H_D+botadd+topadd){
-    memcpy(&tile+(S_W)*workeridx,input+(group_y0-topadd)*width+(group_x0-leftadd),(TILE_W_D+leftadd+rightadd)*esize);
+    event_t evt = async_work_group_copy(dst, src, copy_w, 0);
+    wait_group_events(1, &evt);
   }
 
-  //wait for whole tile to be loaded
   barrier(CLK_LOCAL_MEM_FENCE);
 
-  //ensure coords are within actual window not including bdy
-  if (gx>0&&gx < width-1 &&gy>0&& gy < height-1) {
-
+  // --- Compute diffusion step ---
+  if (gx > 0 && gx < width - 1 && gy > 0 && gy < height - 1) {
     const int cx = lx + 1; // 1..TILE_W_D
     const int cy = ly + 1; // 1..TILE_H_D
-    
-    //access relevant elements
-    double h_center = tile[cy * S_W + cx];
 
-    double up    = tile[(cy - 1) * S_W + cx];
-    double down  = tile[(cy + 1) * S_W + cx];
-    double left  = tile[cy * S_W + (cx - 1)];
-    double right = tile[cy * S_W + (cx + 1)];
+    double h_center = tile[cy * S_W_D + cx];
+    double up    = tile[(cy - 1) * S_W_D + cx];
+    double down  = tile[(cy + 1) * S_W_D + cx];
+    double left  = tile[cy * S_W_D + (cx - 1)];
+    double right = tile[cy * S_W_D + (cx + 1)];
 
-    //neighbor average
     double neighbor_avg = 0.25 * (up + down + left + right);
-
-    //compute and set output
-    double outv = h_center-c*h_center + c * neighbor_avg ;
+    double outv = h_center - c * h_center + c * neighbor_avg;
     output[gy * width + gx] = outv;
   }
 }
 
 
 
+// ============================================================================
+// FLOAT KERNEL VERSION
+// ============================================================================
 
-
-
-// Tunable tile size:
-// assume mem fed is padded, no 0 BC
-
-#define TILE_W_F 16 // will need to load 10 length rows
-#define TILE_H_F 4 // will need to load 4 of them
-
-//#define TILE_W_F 8
-//#define TILE_H_F 8
+#define TILE_W_F 16
+#define TILE_H_F 4
+#define S_W_F (TILE_W_F + 2)
+#define S_H_F (TILE_H_F + 2)
 
 __kernel void diffusion_step_f(
-  __global float *input,  // flattened input image (row-major)
-  __global float *output,       // flattened output image (row-major)
+  __global const float *input,
+  __global float *output,
   const int width,
   const int height,
   const float c)
 {
-  //global coords
-  const int gx = get_global_id(0); // x in [0, global_size_x)
-  const int gy = get_global_id(1); // y in [0, global_size_y)
-
-  //local coords
-  const int lx = get_local_id(0);  // in [0, get_local_size(0))
+  const int gx = get_global_id(0);
+  const int gy = get_global_id(1);
+  const int lx = get_local_id(0);
   const int ly = get_local_id(1);
-  
-  //group coords (upperleft corner)
   const int group_x0 = get_group_id(0) * TILE_W_F;
   const int group_y0 = get_group_id(1) * TILE_H_F;
 
-  //allocate local memory for the tile
-  int S_W=TILE_W_F+2;
-  int S_H=TILE_H_F+2;
-  __local float tile[S_H*S_W];
+  __local float tile[S_H_F * S_W_F];
 
-  const int local_size_x = get_local_size(0);
-  const int local_size_y = get_local_size(1);
+  // --- Parallel async copies: one per row ---
+  if (lx == 0 && ly < S_H_F) {
+    int start_x = max(group_x0 - 1, 0);
+    int start_y = max(group_y0 + ly - 1, 0);
+    int copy_w  = min(S_W_F, width - start_x);
 
-  int esize=sizeof(float);
-  int leftadd=(gx!=0)?1:0;
-  int rightadd=(gx>=width-1)?width-1-gx:1;
+    const __global float *src = input + start_y * width + start_x;
+    __local float *dst = tile + ly * S_W_F;
 
-  int topadd=(gy!=0)?1:0;
-  int botadd=(gy>=height-1)?height-1-gy:1;
-
-  
-  /*
-  we want to load height+topadd+botadd rows of length 
-  width + leftadd + rightadd
-  starting at idx [-leftadd,-topadd]
-  */
-  int workeridx=lx+ly*S_W;
-
-  if (workeridx<TILE_H_F+botadd+topadd){
-    memcpy(&tile+(S_W)*workeridx,input+(group_y0-topadd)*width+(group_x0-leftadd),(TILE_W_F+leftadd+rightadd)*esize);
+    event_t evt = async_work_group_copy(dst, src, copy_w, 0);
+    wait_group_events(1, &evt);
   }
 
-  //wait for whole tile to be loaded
   barrier(CLK_LOCAL_MEM_FENCE);
 
-  //ensure coords are within actual window not including bdy
-  if (gx>0&&gx < width-1 &&gy>0&& gy < height-1) {
-
+  // --- Compute diffusion step ---
+  if (gx > 0 && gx < width - 1 && gy > 0 && gy < height - 1) {
     const int cx = lx + 1; // 1..TILE_W_F
     const int cy = ly + 1; // 1..TILE_H_F
-    
-    //access relevant elements
-    float h_center = tile[cy * S_W + cx];
 
-    float up    = tile[(cy - 1) * S_W + cx];
-    float down  = tile[(cy + 1) * S_W + cx];
-    float left  = tile[cy * S_W + (cx - 1)];
-    float right = tile[cy * S_W + (cx + 1)];
+    float h_center = tile[cy * S_W_F + cx];
+    float up    = tile[(cy - 1) * S_W_F + cx];
+    float down  = tile[(cy + 1) * S_W_F + cx];
+    float left  = tile[cy * S_W_F + (cx - 1)];
+    float right = tile[cy * S_W_F + (cx + 1)];
 
-    //neighbor average
-    float neighbor_avg = 0.25 * (up + down + left + right);
-
-    //compute and set output
-    float outv = h_center-c*h_center + c * neighbor_avg ;
+    float neighbor_avg = 0.25f * (up + down + left + right);
+    float outv = h_center - c * h_center + c * neighbor_avg;
     output[gy * width + gx] = outv;
   }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

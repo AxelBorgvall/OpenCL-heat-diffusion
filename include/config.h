@@ -17,7 +17,7 @@
 
 
 typedef struct{
-  double* data;
+  ARGTYPE* data;
   uint32_t width;
   uint32_t height;
 } Matrix;

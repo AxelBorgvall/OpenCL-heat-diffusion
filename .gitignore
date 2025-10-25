@@ -1,3 +1,4 @@
 *.md
 *.sh
-
+old_kernels.cl
+*.gz

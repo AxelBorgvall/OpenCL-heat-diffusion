@@ -50,8 +50,8 @@ Matrix readfile(FILE *f) {
     }
 
     // convert 1-based to 0-based
-    uint32_t xi = x;
-    uint32_t yi = y;
+    uint32_t xi = x+1;
+    uint32_t yi = y+1;
     mat.data[yi * mat.width + xi] = (ARGTYPE)val;
   }
   return mat;
