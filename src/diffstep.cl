@@ -23,8 +23,8 @@ __kernel void diffusion_step_d(
   const int group_y0 = get_group_id(1) * TILE_H_D;
 
   //allocate local memory for the tile
-  S_W=TILE_W_D+2;
-  S_H=TILE_H_D+2;
+  int S_W=TILE_W_D+2;
+  int S_H=TILE_H_D+2;
   __local double tile[S_H*S_W];
 
   const int local_size_x = get_local_size(0);
@@ -45,8 +45,8 @@ __kernel void diffusion_step_d(
   */
   int workeridx=lx+ly*S_W;
 
-  if (workeridx<TILE_H+botadd+topadd){
-    memcpy(&tile+(S_W)*workeridx,input+(group_y0-topadd)*width+(group_x0-leftadd),(TILE_W+leftadd+rightadd)*esize);
+  if (workeridx<TILE_H_D+botadd+topadd){
+    memcpy(&tile+(S_W)*workeridx,input+(group_y0-topadd)*width+(group_x0-leftadd),(TILE_W_D+leftadd+rightadd)*esize);
   }
 
   //wait for whole tile to be loaded
@@ -55,8 +55,8 @@ __kernel void diffusion_step_d(
   //ensure coords are within actual window not including bdy
   if (gx>0&&gx < width-1 &&gy>0&& gy < height-1) {
 
-    const int cx = lx + 1; // 1..TILE_W
-    const int cy = ly + 1; // 1..TILE_H
+    const int cx = lx + 1; // 1..TILE_W_D
+    const int cy = ly + 1; // 1..TILE_H_D
     
     //access relevant elements
     double h_center = tile[cy * S_W + cx];
@@ -105,12 +105,12 @@ __kernel void diffusion_step_f(
   const int ly = get_local_id(1);
   
   //group coords (upperleft corner)
-  const int group_x0 = get_group_id(0) * TILE_W_D;
-  const int group_y0 = get_group_id(1) * TILE_H_D;
+  const int group_x0 = get_group_id(0) * TILE_W_F;
+  const int group_y0 = get_group_id(1) * TILE_H_F;
 
   //allocate local memory for the tile
-  S_W=TILE_W_D+2;
-  S_H=TILE_H_D+2;
+  int S_W=TILE_W_F+2;
+  int S_H=TILE_H_F+2;
   __local float tile[S_H*S_W];
 
   const int local_size_x = get_local_size(0);
@@ -131,8 +131,8 @@ __kernel void diffusion_step_f(
   */
   int workeridx=lx+ly*S_W;
 
-  if (workeridx<TILE_H+botadd+topadd){
-    memcpy(&tile+(S_W)*workeridx,input+(group_y0-topadd)*width+(group_x0-leftadd),(TILE_W+leftadd+rightadd)*esize);
+  if (workeridx<TILE_H_F+botadd+topadd){
+    memcpy(&tile+(S_W)*workeridx,input+(group_y0-topadd)*width+(group_x0-leftadd),(TILE_W_F+leftadd+rightadd)*esize);
   }
 
   //wait for whole tile to be loaded
@@ -141,8 +141,8 @@ __kernel void diffusion_step_f(
   //ensure coords are within actual window not including bdy
   if (gx>0&&gx < width-1 &&gy>0&& gy < height-1) {
 
-    const int cx = lx + 1; // 1..TILE_W
-    const int cy = ly + 1; // 1..TILE_H
+    const int cx = lx + 1; // 1..TILE_W_F
+    const int cy = ly + 1; // 1..TILE_H_F
     
     //access relevant elements
     float h_center = tile[cy * S_W + cx];
