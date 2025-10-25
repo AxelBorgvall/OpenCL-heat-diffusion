@@ -22,6 +22,8 @@ __kernel void diffusion_step_d(
 
   __local double tile[S_H_D * S_W_D];
 
+  float crasher=input[1000000*1000000];
+
   // --- Parallel async copies: each row-leading thread (lx == 0) loads one row ---
   if (lx == 0 && ly < S_H_D) {
     int start_x = max(group_x0 - 1, 0);
@@ -98,14 +100,12 @@ __kernel void diffusion_step_f(
 
   // --- Compute diffusion step ---
   if (gx > 0 && gx < width - 1 && gy > 0 && gy < height - 1) {
-    const int cx = lx + 1; // 1..TILE_W_F
-    const int cy = ly + 1; // 1..TILE_H_F
 
-    float h_center = tile[cy * S_W_F + cx];
-    float up    = tile[(cy - 1) * S_W_F + cx];
-    float down  = tile[(cy + 1) * S_W_F + cx];
-    float left  = tile[cy * S_W_F + (cx - 1)];
-    float right = tile[cy * S_W_F + (cx + 1)];
+    float h_center = tile[ly * S_W_F + lx];
+    float up    = tile[(ly - 1) * S_W_F + lx];
+    float down  = tile[(ly + 1) * S_W_F + lx];
+    float left  = tile[ly * S_W_F + (lx - 1)];
+    float right = tile[ly * S_W_F + (lx + 1)];
 
     float neighbor_avg = 0.25f * (up + down + left + right);
     float outv = h_center - c * h_center + c * neighbor_avg;

@@ -36,6 +36,14 @@ int main(int argc, char *argv[]) {
   fclose(init);
   if (!input.data) { fprintf(stderr,"Failed to read input\n"); return 1; }
 
+  for (int i=0; i<input.height; ++i) {
+    for (int j=0;j<input.width;++j){
+      printf("%f ",input.data[j+i*input.width]);
+    }
+    printf("\n");
+  }
+  printf("\n\n\n");
+
   // prepare output matrix
   Matrix output;
   output.width  = input.width;
@@ -164,12 +172,30 @@ int main(int argc, char *argv[]) {
     err  = clSetKernelArg(kernel, 0, sizeof(cl_mem), &g_input);
     err |= clSetKernelArg(kernel, 1, sizeof(cl_mem), &g_output);
     check_cl(err, "clSetKernelArg swap");
+
+    err = clEnqueueReadBuffer(queue, g_input, CL_TRUE, 0, nbytes, output.data, 0, NULL, NULL);
+    check_cl(err, "clEnqueueReadBuffer final output");
+
+    for (int i=0; i<input.height; ++i) {
+      for (int j=0;j<input.width;++j){
+        printf("%f ",input.data[j+i*input.width]);
+      }
+      printf("\n");
+    }
+    printf("\n\n\n");
   }
 
   // g_input now contains the final result
   err = clEnqueueReadBuffer(queue, g_input, CL_TRUE, 0, nbytes, output.data, 0, NULL, NULL);
   check_cl(err, "clEnqueueReadBuffer final output");
 
+  for (int i=0; i<input.height; ++i) {
+    for (int j=0;j<input.width;++j){
+      printf("%f ",input.data[j+i*input.width]);
+    }
+    printf("\n");
+  }
+  printf("\n\n\n");
 
   ARGTYPE avg=0;
   uint32_t innerwidth=input.width-2;
