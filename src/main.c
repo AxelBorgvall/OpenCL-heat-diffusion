@@ -17,7 +17,7 @@ static void check_cl(cl_int err, const char *msg) {
 
 int main(int argc, char *argv[]) {
   // argument parsing
-  uint32_t n = 1;        // number of iterations (unused here, we perform one step)
+  uint32_t n = 1;        // number of iterations
   ARGTYPE d = 0.01;
 
   for (int i = 1; i < argc; ++i) {
@@ -36,15 +36,8 @@ int main(int argc, char *argv[]) {
   fclose(init);
   if (!input.data) { fprintf(stderr,"Failed to read input\n"); return 1; }
 
-  for (int i=0; i<input.height; ++i) {
-    for (int j=0;j<input.width;++j){
-      printf("%f ",input.data[j+i*input.width]);
-    }
-    printf("\n");
-  }
-  printf("\n\n\n");
 
-  // prepare output matrix
+  // prepare output matrix (calloc to 0 for init)
   Matrix output;
   output.width  = input.width;
   output.height = input.height;
@@ -58,10 +51,10 @@ int main(int argc, char *argv[]) {
   err = clGetPlatformIDs(1, &platform, NULL);
   check_cl(err, "clGetPlatformIDs");
 
-
   err = clGetDeviceIDs(platform, CL_DEVICE_TYPE_GPU, 1, &device, NULL);
   if (err != CL_SUCCESS) {
     // fallback to CPU if GPU not present
+    printf("falling back to CPU\n");
     err = clGetDeviceIDs(platform, CL_DEVICE_TYPE_CPU, 1, &device, NULL);
     check_cl(err, "clGetDeviceIDs CPU fallback");
   }
@@ -69,7 +62,6 @@ int main(int argc, char *argv[]) {
   cl_context context = clCreateContext(NULL, 1, &device, NULL, NULL, &err);
   check_cl(err, "clCreateContext");
 
-  // create command queue (legacy)
   cl_command_queue queue = clCreateCommandQueue(context, device, 0, &err);
   check_cl(err, "clCreateCommandQueue");
 
@@ -92,7 +84,6 @@ int main(int argc, char *argv[]) {
 
     err = clBuildProgram(program, 1, &device, NULL, NULL, NULL);
     if (err != CL_SUCCESS) {
-      // fallthrough to compile source if binary build fails
       clReleaseProgram(program);
       program = NULL;
       fprintf(stderr, "Binary build failed, will try compiling source\n");
@@ -100,7 +91,6 @@ int main(int argc, char *argv[]) {
     }
   } else {
     compile_source:
-    // compile from diffstep.cl (fallback)
     FILE* fsrc = fopen("src/diffstep.cl", "r");
     if (!fsrc) { fprintf(stderr,"No binary and cannot open diffstep.cl\n"); goto cleanup; }
     fseek(fsrc, 0, SEEK_END);
@@ -126,25 +116,26 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  // kernel name must match file: diffusion_step
   #ifdef USE_FLOAT
     cl_kernel kernel = clCreateKernel(program, "diffusion_step_f", &err);
   #else
     cl_kernel kernel = clCreateKernel(program, "diffusion_step_d", &err);
   #endif
- 
   check_cl(err, "clCreateKernel");
 
   // create buffers
   size_t nbytes = (size_t)input.width * input.height * sizeof(ARGTYPE);
-
 
   cl_mem g_input  = clCreateBuffer(context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, nbytes, input.data, &err);
   check_cl(err, "clCreateBuffer g_input");
   cl_mem g_output = clCreateBuffer(context, CL_MEM_READ_WRITE, nbytes, NULL, &err);
   check_cl(err, "clCreateBuffer g_output");
 
-  // set kernel args (kernel signature: (__global const ARGTYPE*, __global float*, int width, int height, float c))
+  // Initialize g_output to 0 (boundaries fixed at 0, inner will be overwritten)
+  err = clEnqueueWriteBuffer(queue, g_output, CL_TRUE, 0, nbytes, output.data, 0, NULL, NULL);  // output.data is calloc'd 0
+  check_cl(err, "clEnqueueWriteBuffer init g_output");
+
+  // set kernel args
   int kw = (int)input.width;
   int kh = (int)input.height;
   err  = clSetKernelArg(kernel, 0, sizeof(cl_mem), &g_input);
@@ -154,7 +145,7 @@ int main(int argc, char *argv[]) {
   err |= clSetKernelArg(kernel, 4, sizeof(ARGTYPE), &d);
   check_cl(err, "clSetKernelArg");
 
-  // compute global/local sizes (make them size_t)
+  // compute global/local sizes
   size_t local[2] = { TILE_W, TILE_H };
   size_t global[2];
   global[0] = ((input.width  + TILE_W - 1) / TILE_W) * TILE_W;
@@ -163,63 +154,48 @@ int main(int argc, char *argv[]) {
   for (uint32_t step = 0; step < n; ++step) {
     err = clEnqueueNDRangeKernel(queue, kernel, 2, NULL, global, local, 0, NULL, NULL);
     check_cl(err, "clEnqueueNDRangeKernel");
+    clFinish(queue);  // Ensure completion
 
+    // swap buffers
     cl_mem tmp = g_input;
     g_input = g_output;
     g_output = tmp;
 
-    // update kernel args
+    // update only changing args
     err  = clSetKernelArg(kernel, 0, sizeof(cl_mem), &g_input);
     err |= clSetKernelArg(kernel, 1, sizeof(cl_mem), &g_output);
     check_cl(err, "clSetKernelArg swap");
 
-    err = clEnqueueReadBuffer(queue, g_input, CL_TRUE, 0, nbytes, output.data, 0, NULL, NULL);
-    check_cl(err, "clEnqueueReadBuffer final output");
-
-    for (int i=0; i<input.height; ++i) {
-      for (int j=0;j<input.width;++j){
-        printf("%f ",input.data[j+i*input.width]);
-      }
-      printf("\n");
-    }
-    printf("\n\n\n");
   }
-
-  // g_input now contains the final result
   err = clEnqueueReadBuffer(queue, g_input, CL_TRUE, 0, nbytes, output.data, 0, NULL, NULL);
-  check_cl(err, "clEnqueueReadBuffer final output");
+  check_cl(err, "clEnqueueReadBuffer");
 
-  for (int i=0; i<input.height; ++i) {
-    for (int j=0;j<input.width;++j){
-      printf("%f ",input.data[j+i*input.width]);
-    }
-    printf("\n");
-  }
-  printf("\n\n\n");
+  // No redundant read outside loop (already have final in output.data)
 
+  // Compute avg/abs diff on inner
   ARGTYPE avg=0;
   uint32_t innerwidth=input.width-2;
   uint32_t innerheight=input.height-2;
-  ARGTYPE denom_inv=(double)1/(innerwidth*innerheight);
+  ARGTYPE denom_inv=1.0/(innerwidth*innerheight);
   for (int i=0; i<innerheight; ++i) {
     for (int j=0; j<innerwidth; ++j) {
-      avg+=output.data[(i+1)*output.width+j+1];   
+      avg += output.data[(i+1)*output.width + j+1];   
     }
   }
-  avg*=denom_inv;
-  printf("average: %f\n",avg);
+  avg *= denom_inv;
+  printf("average: %f\n", avg);
+
   ARGTYPE avg_abs_diff=0;
   for (int i=0; i<innerheight; ++i) {
     for (int j=0; j<innerwidth; ++j) {
-      avg_abs_diff+=fabs(output.data[(i+1)*output.width+j+1]-avg);   
+      avg_abs_diff += fabs(output.data[(i+1)*output.width + j+1] - avg);   
     }
   }
-  avg_abs_diff*=denom_inv;
-  printf("average absolute difference: %f\n",avg_abs_diff);
-
+  avg_abs_diff *= denom_inv;
+  printf("average absolute difference: %f\n", avg_abs_diff);
 
   // cleanup
-  cleanup:
+cleanup:
   if (g_input) clReleaseMemObject(g_input);
   if (g_output) clReleaseMemObject(g_output);
   if (kernel) clReleaseKernel(kernel);

@@ -1,4 +1,5 @@
 *.md
 *.sh
 old_kernels.cl
+inc_ind_ker.cl
 *.gz
