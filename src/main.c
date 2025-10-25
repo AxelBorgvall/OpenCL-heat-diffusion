@@ -118,10 +118,13 @@ int main(int argc, char *argv[]) {
     }
   }
 
-
-
   // kernel name must match file: diffusion_step
-  cl_kernel kernel = clCreateKernel(program, "diffusion_step", &err);
+  #ifdef USE_FLOAT
+    cl_kernel kernel = clCreateKernel(program, "diffusion_step_f", &err);
+  #else
+    cl_kernel kernel = clCreateKernel(program, "diffusion_step_d", &err);
+  #endif
+ 
   check_cl(err, "clCreateKernel");
 
   // create buffers
