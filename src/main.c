@@ -172,16 +172,21 @@ int main(int argc, char *argv[]) {
 
 
   ARGTYPE avg=0;
-  ARGTYPE denom_inv=(double)1/(input.width*input.height);
-  uint64_t N=(uint64_t)kw*kh;
-  for (uint64_t i=0; i<N; ++i) {
-    avg+=output.data[i];
+  uint32_t innerwidth=input.width-2;
+  uint32_t innerheight=input.height-2;
+  ARGTYPE denom_inv=(double)1/(innerwidth*innerheight);
+  for (int i=0; i<innerheight; ++i) {
+    for (int j=0; j<innerwidth; ++j) {
+      avg+=output.data[(i+1)*output.width+j+1];   
+    }
   }
   avg*=denom_inv;
   printf("average: %f\n",avg);
   ARGTYPE avg_abs_diff=0;
-  for (uint64_t i=0; i<N; ++i) {
-    avg_abs_diff+=fabs(output.data[i]-avg);
+  for (int i=0; i<innerheight; ++i) {
+    for (int j=0; j<innerwidth; ++j) {
+      avg_abs_diff+=fabs(output.data[(i+1)*output.width+j+1]-avg);   
+    }
   }
   avg_abs_diff*=denom_inv;
   printf("average absolute difference: %f\n",avg_abs_diff);
